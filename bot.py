@@ -27,6 +27,7 @@ DATA_FILE = "tournament_data.json"
 POSITIONS = ["PG", "SG", "SF", "PF", "C"]
 TYPES = ["Lock", "Hash"]
 MAX_CAPTAINS = 2
+AUTO_CAPTAIN_THRESHOLD = 10
 
 # ---------- Persistence ----------
 
@@ -52,6 +53,29 @@ def default_data():
         "signups": {},
         "draft": default_draft(),
     }
+
+
+def auto_assign_captains(data: dict) -> list:
+    """If sign-ups have reached AUTO_CAPTAIN_THRESHOLD and fewer than MAX_CAPTAINS
+    captains exist, randomly promote players from the pool to fill the remaining
+    slot(s). Returns the list of user IDs newly made captain (empty if none)."""
+    signups = data["signups"]
+    if len(signups) < AUTO_CAPTAIN_THRESHOLD:
+        return []
+
+    current_captains = [uid for uid, s in signups.items() if s["captain"]]
+    needed = MAX_CAPTAINS - len(current_captains)
+    if needed <= 0:
+        return []
+
+    pool = [uid for uid in signups if uid not in current_captains]
+    if not pool:
+        return []
+
+    chosen = random.sample(pool, min(needed, len(pool)))
+    for uid in chosen:
+        signups[uid]["captain"] = True
+    return chosen
 
 
 def save_data(data):
@@ -249,6 +273,7 @@ class SubmitButton(discord.ui.Button):
             "type": view.pos_type,
             "captain": view.captain,
         }
+        newly_assigned = auto_assign_captains(data)
         save_data(data)
         await refresh_results_message(data, interaction.client)
 
@@ -257,6 +282,16 @@ class SubmitButton(discord.ui.Button):
             embed=None,
             view=None,
         )
+
+        if newly_assigned:
+            names = ", ".join(
+                f"**{data['signups'][u]['display_name']}**" for u in newly_assigned
+            )
+            await interaction.followup.send(
+                f"🎲 We hit {AUTO_CAPTAIN_THRESHOLD} sign-ups with an open captain spot, "
+                f"so {names} {'was' if len(newly_assigned) == 1 else 'were'} randomly "
+                "picked as captain! Use `/start_draft` when ready."
+            )
 
 
 class SignupView(discord.ui.View):
