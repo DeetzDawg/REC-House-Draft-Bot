@@ -438,6 +438,7 @@ async def draft_pick(interaction: discord.Interaction, player: str):
     draft["teams"][uid].append(player)
 
     picked_name = data["signups"].get(player, {}).get("display_name", "Unknown")
+    captain_name = data["signups"].get(uid, {}).get("display_name", "A captain")
 
     if draft["available"]:
         other_captain = next(c for c in draft["captains"] if c != uid)
@@ -448,11 +449,28 @@ async def draft_pick(interaction: discord.Interaction, player: str):
         draft["active"] = False
         draft["complete"] = True
         draft["turn"] = None
-        turn_note = "That was the last player — draft complete! 🎉"
+        turn_note = None
 
     save_data(data)
     await refresh_results_message(data, interaction.client)
-    await interaction.response.send_message(f"✅ Drafted **{picked_name}**. {turn_note}")
+    await interaction.response.send_message(
+        f"🎯 **{captain_name}** drafted **{picked_name}**."
+        + (f" {turn_note}" if turn_note else "")
+    )
+
+    if draft["complete"]:
+        summary = discord.Embed(
+            title="🎉 Draft Complete — Final Teams",
+            color=discord.Color.gold(),
+        )
+        for cap_id in draft["captains"]:
+            cap_name = data["signups"].get(cap_id, {}).get("display_name", "Unknown")
+            picks = draft["teams"].get(cap_id, [])
+            roster = "\n".join(
+                f"• {data['signups'].get(pid, {}).get('display_name', 'Unknown')}" for pid in picks
+            ) or "*no picks*"
+            summary.add_field(name=f"👑 Team {cap_name}", value=roster, inline=True)
+        await interaction.followup.send(embed=summary)
 
 
 @bot.tree.command(name="draft_board", description="View the current draft picks and whose turn it is")
