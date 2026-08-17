@@ -17,6 +17,7 @@ Data is stored in tournament_data.json so it survives bot restarts.
 
 import json
 import os
+import random
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -363,12 +364,13 @@ async def start_draft(interaction: discord.Interaction):
         return
 
     available = [uid for uid in signups if uid not in captains]
+    first_pick = random.choice(captains)
     data["draft"] = {
         "active": True,
         "complete": False,
         "captains": captains,
         "teams": {c: [] for c in captains},
-        "turn": captains[0],
+        "turn": first_pick,
         "available": available,
     }
     save_data(data)
@@ -385,9 +387,9 @@ async def start_draft(interaction: discord.Interaction):
         )
         return
 
-    first_captain_name = signups[captains[0]]["display_name"]
+    first_captain_name = signups[first_pick]["display_name"]
     await interaction.response.send_message(
-        f"🏀 Draft started! {first_captain_name} picks first. "
+        f"🎲 Coin flip: {first_captain_name} picks first! "
         "Captains use `/draft_pick` on their turn.",
     )
 
