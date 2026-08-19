@@ -1,29 +1,34 @@
 # Tournament Sign-Up Bot
 
 ## What it does
+Every command below is usable by **anyone** in the server — there are no permission
+restrictions.
+
 - `/signup` — opens a form: primary position (PG/SG/SF/PF/C), secondary position,
-  Lock or Hash (for your primary position), and whether you want to be a captain.
-  Running `/signup` again overwrites your previous entry. **Only 2 captains** are
-  allowed — once 2 are locked in, anyone else who picks "Yes" for captain is signed
-  up as a regular player instead, with a heads-up message explaining why.
-- `/withdraw` — removes your own sign-up. Captains can't withdraw mid-draft (an admin
+  Lock or Hash (optional, for your primary position), and whether you want to be a
+  captain. Running `/signup` again overwrites your previous entry. **Only 2 captains**
+  are allowed — once 2 are locked in, anyone else who picks "Yes" for captain is signed
+  up as a regular player instead, with a heads-up message explaining why. If sign-ups
+  reach 10 and a captain slot is still open, someone is randomly picked to fill it.
+- `/withdraw` — removes your own sign-up. Captains can't withdraw mid-draft (someone
   would need to `/reset_tournament` first).
 - `/roster` — shows the current sign-up list privately (just to you).
-- `/setup_results` — **(admin only)** posts the live results message in the current
-  channel. This message auto-updates every time someone signs up, withdraws, drafts a
-  player, or the tournament is reset. Run this once per tournament, in whatever channel
-  you want the public list to live.
-- `/start_draft` — **(admin only)** kicks off the captains' draft. Requires exactly 2
-  captains signed up. The first captain to sign up picks first.
+- `/setup_results` — posts the live results message in the current channel. This
+  message auto-updates every time someone signs up, withdraws, drafts a player, or the
+  tournament is reset. Run this once per tournament, in whatever channel you want the
+  public list to live.
+- `/start_draft` — kicks off the captains' draft. Requires exactly 2 captains signed
+  up. First pick is randomly decided between the two captains.
 - `/draft_pick player:<name>` — usable only by whichever captain's turn it is. Pick
   from an autocomplete dropdown of players still available. Once picked, that player
   can't be chosen again this draft, and turns alternate between the two captains.
 - `/draft_board` — shows the current draft: each captain's picks, whose turn it is,
   and who's still in the pool. Same info as the auto-updating results message.
-- `/reset_tournament` — **(admin only)** wipes all sign-ups *and* the draft so you can
-  start a new tournament. The results message updates automatically to show it's empty.
+- `/reset_tournament` — wipes all sign-ups *and* the draft so you can start a new
+  tournament. The results message updates automatically to show it's empty.
 
-"Admin" = anyone with the **Manage Server** permission in your Discord server.
+If you'd rather lock some of these down later (e.g. only mods can `/reset_tournament`),
+that's a quick change to re-add — just let me know.
 
 ## Setup
 

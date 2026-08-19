@@ -1,14 +1,16 @@
 """
 Tournament Sign-Up Discord Bot
 --------------------------------
-Slash commands:
-  /signup          - Opens an interactive form (primary/secondary position, Lock/Hash, captain?)
-                     Only 2 captains are allowed per tournament.
+Slash commands (all usable by anyone in the server):
+  /signup          - Opens an interactive form (primary/secondary position, Lock/Hash [optional], captain?)
+                     Only 2 captains are allowed per tournament (extra "yes" picks become regular players).
+                     If sign-ups reach 10 and a captain slot is still open, someone is randomly assigned.
   /roster          - Shows the current sign-up list (ephemeral, on-demand)
   /withdraw        - Removes your own sign-up
-  /setup_results   - (admin) Posts the auto-updating results message in the current channel
-  /reset_tournament- (admin) Clears all sign-ups and the draft, and starts fresh
-  /start_draft     - (admin) Begins the captains' draft. Requires exactly 2 captains signed up.
+  /setup_results   - Posts the auto-updating results message in the current channel
+  /reset_tournament- Clears all sign-ups and the draft, and starts fresh
+  /start_draft     - Begins the captains' draft. Requires exactly 2 captains signed up.
+                     First pick is chosen randomly between the two captains.
   /draft_pick      - (captains only, on their turn) Draft a player from the available pool
   /draft_board     - Shows current draft picks, whose turn it is, and remaining players
 
@@ -89,12 +91,6 @@ intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
-def is_admin():
-    async def predicate(interaction: discord.Interaction) -> bool:
-        return interaction.user.guild_permissions.manage_guild
-    return app_commands.check(predicate)
-
-
 def build_results_embed(data: dict) -> discord.Embed:
     signups = data["signups"]
     embed = discord.Embed(
@@ -112,9 +108,10 @@ def build_results_embed(data: dict) -> discord.Embed:
 
     def fmt(entry):
         tag = "👑 " if entry["captain"] else ""
+        type_str = f" ({entry['type']})" if entry.get("type") else ""
         return (
             f"{tag}**{entry['display_name']}** — "
-            f"Primary: `{entry['primary']}` ({entry['type']}) | "
+            f"Primary: `{entry['primary']}`{type_str} | "
             f"Secondary: `{entry['secondary']}`"
         )
 
@@ -196,7 +193,7 @@ class SecondarySelect(discord.ui.Select):
 class TypeSelect(discord.ui.Select):
     def __init__(self):
         options = [discord.SelectOption(label=t) for t in TYPES]
-        super().__init__(placeholder="Lock or Hash (primary position)", options=options, custom_id="type")
+        super().__init__(placeholder="Lock or Hash (optional)", options=options, custom_id="type")
 
     async def callback(self, interaction: discord.Interaction):
         self.view.pos_type = self.values[0]
@@ -228,8 +225,6 @@ class SubmitButton(discord.ui.Button):
             missing.append("Primary position")
         if view.secondary is None:
             missing.append("Secondary position")
-        if view.pos_type is None:
-            missing.append("Lock/Hash")
         if view.captain is None:
             missing.append("Captain")
         if missing:
@@ -354,8 +349,7 @@ async def roster(interaction: discord.Interaction):
     await interaction.response.send_message(embed=build_results_embed(data), ephemeral=True)
 
 
-@bot.tree.command(name="setup_results", description="[Admin] Post the auto-updating results message here")
-@is_admin()
+@bot.tree.command(name="setup_results", description="Post the auto-updating results message here")
 async def setup_results(interaction: discord.Interaction):
     data = load_data()
     embed = build_results_embed(data)
@@ -366,8 +360,7 @@ async def setup_results(interaction: discord.Interaction):
     await interaction.response.send_message("✅ Results message posted and will auto-update.", ephemeral=True)
 
 
-@bot.tree.command(name="reset_tournament", description="[Admin] Clear all sign-ups for a new tournament")
-@is_admin()
+@bot.tree.command(name="reset_tournament", description="Clear all sign-ups for a new tournament")
 async def reset_tournament(interaction: discord.Interaction):
     data = load_data()
     data["signups"] = {}
@@ -377,8 +370,7 @@ async def reset_tournament(interaction: discord.Interaction):
     await interaction.response.send_message("🔄 Tournament reset. All sign-ups cleared.", ephemeral=True)
 
 
-@bot.tree.command(name="start_draft", description="[Admin] Begin the captains' draft")
-@is_admin()
+@bot.tree.command(name="start_draft", description="Begin the captains' draft")
 async def start_draft(interaction: discord.Interaction):
     data = load_data()
     signups = data["signups"]
@@ -512,18 +504,6 @@ async def draft_pick(interaction: discord.Interaction, player: str):
 async def draft_board(interaction: discord.Interaction):
     data = load_data()
     await interaction.response.send_message(embed=build_results_embed(data), ephemeral=True)
-
-
-@setup_results.error
-@reset_tournament.error
-@start_draft.error
-async def admin_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    if isinstance(error, app_commands.CheckFailure):
-        await interaction.response.send_message(
-            "🚫 You need the 'Manage Server' permission to do that.", ephemeral=True
-        )
-    else:
-        raise error
 
 
 if __name__ == "__main__":
