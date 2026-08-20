@@ -4,12 +4,14 @@
 Every command below is usable by **anyone** in the server — there are no permission
 restrictions.
 
-- `/signup` — opens a form: primary position (PG/SG/SF/PF/C), secondary position,
-  Lock or Hash (optional, for your primary position), and whether you want to be a
-  captain. Running `/signup` again overwrites your previous entry. **Only 2 captains**
-  are allowed — once 2 are locked in, anyone else who picks "Yes" for captain is signed
-  up as a regular player instead, with a heads-up message explaining why. If sign-ups
-  reach 10 and a captain slot is still open, someone is randomly picked to fill it.
+- `/signup` — opens a form: primary position, secondary position, tertiary position,
+  and whether you want to be a captain, plus a **Submit** button. Position choices are
+  **PG, SG, SG - Lock, SF, SF - Lock, PF, C**. Fill out all four dropdowns, then hit
+  Submit — it'll tell you if anything's missing. Running `/signup` again overwrites
+  your previous entry. **Only 2 captains** are allowed — once 2 are locked in, anyone
+  else who picks "Yes" for captain is signed up as a regular player instead, with a
+  heads-up message explaining why. If sign-ups reach 10 and a captain slot is still
+  open, someone is randomly picked to fill it.
 - `/withdraw` — removes your own sign-up. Captains can't withdraw mid-draft (someone
   would need to `/reset_tournament` first).
 - `/roster` — shows the current sign-up list privately (just to you).

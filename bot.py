@@ -2,7 +2,9 @@
 Tournament Sign-Up Discord Bot
 --------------------------------
 Slash commands (all usable by anyone in the server):
-  /signup          - Opens an interactive form (primary/secondary position, Lock/Hash [optional], captain?)
+  /signup          - Opens an interactive form (primary/secondary/tertiary position,
+                     captain?) with a Submit button. Position choices: PG, SG,
+                     SG - Lock, SF, SF - Lock, PF, C.
                      Only 2 captains are allowed per tournament (extra "yes" picks become regular players).
                      If sign-ups reach 10 and a captain slot is still open, someone is randomly assigned.
   /roster          - Shows the current sign-up list (ephemeral, on-demand)
@@ -26,8 +28,7 @@ from discord.ext import commands
 
 DATA_FILE = "tournament_data.json"
 
-POSITIONS = ["PG", "SG", "SF", "PF", "C"]
-TYPES = ["Lock", "Hash"]
+POSITIONS = ["PG", "SG", "SG - Lock", "SF", "SF - Lock", "PF", "C"]
 MAX_CAPTAINS = 2
 AUTO_CAPTAIN_THRESHOLD = 10
 
@@ -108,11 +109,12 @@ def build_results_embed(data: dict) -> discord.Embed:
 
     def fmt(entry):
         tag = "👑 " if entry["captain"] else ""
-        type_str = f" ({entry['type']})" if entry.get("type") else ""
+        tertiary = entry.get("tertiary")
+        tertiary_str = f" | Tertiary: `{tertiary}`" if tertiary else ""
         return (
             f"{tag}**{entry['display_name']}** — "
-            f"Primary: `{entry['primary']}`{type_str} | "
-            f"Secondary: `{entry['secondary']}`"
+            f"Primary: `{entry['primary']}` | "
+            f"Secondary: `{entry['secondary']}`{tertiary_str}"
         )
 
     lines = [fmt(e) for e in captains] + [fmt(e) for e in others]
@@ -190,13 +192,13 @@ class SecondarySelect(discord.ui.Select):
         await interaction.response.edit_message(view=self.view)
 
 
-class TypeSelect(discord.ui.Select):
+class TertiarySelect(discord.ui.Select):
     def __init__(self):
-        options = [discord.SelectOption(label=t) for t in TYPES]
-        super().__init__(placeholder="Lock or Hash (optional)", options=options, custom_id="type")
+        options = [discord.SelectOption(label=p) for p in POSITIONS]
+        super().__init__(placeholder="Tertiary position", options=options, custom_id="tertiary")
 
     async def callback(self, interaction: discord.Interaction):
-        self.view.pos_type = self.values[0]
+        self.view.tertiary = self.values[0]
         for opt in self.options:
             opt.default = opt.value == self.values[0]
         await interaction.response.edit_message(view=self.view)
@@ -225,6 +227,8 @@ class SubmitButton(discord.ui.Button):
             missing.append("Primary position")
         if view.secondary is None:
             missing.append("Secondary position")
+        if view.tertiary is None:
+            missing.append("Tertiary position")
         if view.captain is None:
             missing.append("Captain")
         if missing:
@@ -249,12 +253,11 @@ class SubmitButton(discord.ui.Button):
                     embed=None,
                     view=None,
                 )
-                view.captain = False
                 data["signups"][uid] = {
                     "display_name": interaction.user.display_name,
                     "primary": view.primary,
                     "secondary": view.secondary,
-                    "type": view.pos_type,
+                    "tertiary": view.tertiary,
                     "captain": False,
                 }
                 save_data(data)
@@ -265,7 +268,7 @@ class SubmitButton(discord.ui.Button):
             "display_name": interaction.user.display_name,
             "primary": view.primary,
             "secondary": view.secondary,
-            "type": view.pos_type,
+            "tertiary": view.tertiary,
             "captain": view.captain,
         }
         newly_assigned = auto_assign_captains(data)
@@ -294,11 +297,11 @@ class SignupView(discord.ui.View):
         super().__init__(timeout=300)
         self.primary = None
         self.secondary = None
-        self.pos_type = None
+        self.tertiary = None
         self.captain = None
         self.add_item(PrimarySelect())
         self.add_item(SecondarySelect())
-        self.add_item(TypeSelect())
+        self.add_item(TertiarySelect())
         self.add_item(CaptainSelect())
         self.add_item(SubmitButton())
 
