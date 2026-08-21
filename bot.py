@@ -84,9 +84,9 @@ def default_data():
 
 
 def captain_cap_for(num_signups: int) -> int:
-    """How many captain slots are available given the current sign-up count.
-    Starts at BASE_CAPTAIN_SLOTS (2), then grows as CAPTAIN_THRESHOLDS are crossed:
-    10 signups -> 2, 15 signups -> 3, 20 signups -> 4."""
+    """How many captain slots someone can manually opt into via /signup. Always at
+    least BASE_CAPTAIN_SLOTS (2) from the start, then grows as CAPTAIN_THRESHOLDS
+    are crossed: 10 signups -> 2, 15 signups -> 3, 20 signups -> 4."""
     cap = BASE_CAPTAIN_SLOTS
     for threshold, slots in CAPTAIN_THRESHOLDS:
         if num_signups >= threshold:
@@ -94,15 +94,28 @@ def captain_cap_for(num_signups: int) -> int:
     return cap
 
 
+def auto_assign_target(num_signups: int) -> int:
+    """How many captains should be *auto-filled* if empty. Unlike captain_cap_for,
+    this stays at 0 until the first threshold (10 signups) is actually reached —
+    otherwise auto-assignment would kick in as soon as 2 people signed up, since the
+    base manual cap is already 2."""
+    target = 0
+    for threshold, slots in CAPTAIN_THRESHOLDS:
+        if num_signups >= threshold:
+            target = max(target, slots)
+    return target
+
+
 def auto_assign_captains(data: dict) -> list:
-    """If sign-ups have crossed a captain threshold and fewer captains exist than
-    the current cap allows, randomly promote players from the pool to fill the
-    remaining slot(s). Returns the list of user IDs newly made captain (empty if none)."""
+    """If sign-ups have crossed a captain threshold (10/15/20) and fewer captains
+    exist than that threshold's target, randomly promote players from the pool to
+    fill the remaining slot(s). Returns the list of user IDs newly made captain
+    (empty if none)."""
     signups = data["signups"]
-    cap = captain_cap_for(len(signups))
+    target = auto_assign_target(len(signups))
 
     current_captains = [uid for uid, s in signups.items() if s["captain"]]
-    needed = cap - len(current_captains)
+    needed = target - len(current_captains)
     if needed <= 0:
         return []
 
