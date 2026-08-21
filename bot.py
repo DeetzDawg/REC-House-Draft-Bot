@@ -1,7 +1,7 @@
 """
 Tournament Sign-Up Discord Bot
 --------------------------------
-Slash commands (all usable by anyone in the server):
+Slash commands (all usable by anyone in the server, except where noted):
   /signup          - Opens an interactive form (primary/secondary/tertiary position,
                      captain?) with a Submit button. Position choices: PG, SG,
                      SG - Lock, SF, SF - Lock, PF, C.
@@ -9,6 +9,8 @@ Slash commands (all usable by anyone in the server):
                      4 once 20 sign-ups (extra "yes" picks beyond the current cap
                      become regular players). If sign-ups cross 10/15/20 and a
                      captain slot is still open, someone is randomly assigned.
+  /signup_for      - (Manage Server permission only) Same form as /signup, but fills
+                     it out on behalf of another member of the server.
   /roster          - Shows the current sign-up list (ephemeral, on-demand)
   /withdraw        - Removes your own sign-up
   /setup_results   - Posts the auto-updating results message in the current channel
@@ -262,8 +264,10 @@ class SubmitButton(discord.ui.Button):
             )
             return
 
+        target = view.target_user or interaction.user
+        on_behalf = view.target_user is not None
         data = load_data()
-        uid = str(interaction.user.id)
+        uid = str(target.id)
 
         if view.captain:
             existing_captains = [
@@ -276,14 +280,15 @@ class SubmitButton(discord.ui.Button):
                 await interaction.response.edit_message(
                     content=(
                         f"⚠️ There are already {cap} captain slot(s) filled for the "
-                        f"current sign-up count. You've been signed up as a regular "
-                        "player instead."
+                        f"current sign-up count. "
+                        + (f"{target.display_name} has" if on_behalf else "You've")
+                        + " been signed up as a regular player instead."
                     ),
                     embed=None,
                     view=None,
                 )
                 data["signups"][uid] = {
-                    "display_name": interaction.user.display_name,
+                    "display_name": target.display_name,
                     "primary": view.primary,
                     "secondary": view.secondary,
                     "tertiary": view.tertiary,
@@ -294,7 +299,7 @@ class SubmitButton(discord.ui.Button):
                 return
 
         data["signups"][uid] = {
-            "display_name": interaction.user.display_name,
+            "display_name": target.display_name,
             "primary": view.primary,
             "secondary": view.secondary,
             "tertiary": view.tertiary,
@@ -304,8 +309,16 @@ class SubmitButton(discord.ui.Button):
         save_data(data)
         await refresh_results_message(data, interaction.client)
 
+        if on_behalf:
+            confirm_msg = (
+                f"✅ Signed up **{target.display_name}**! Run `/signup_for` again "
+                "for them anytime to update their entry."
+            )
+        else:
+            confirm_msg = "✅ You're signed up! You can run `/signup` again anytime to update your entry."
+
         await interaction.response.edit_message(
-            content="✅ You're signed up! You can run `/signup` again anytime to update your entry.",
+            content=confirm_msg,
             embed=None,
             view=None,
         )
@@ -322,8 +335,9 @@ class SubmitButton(discord.ui.Button):
 
 
 class SignupView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, target_user: discord.Member = None):
         super().__init__(timeout=300)
+        self.target_user = target_user  # None = signing up the interacting user
         self.primary = None
         self.secondary = None
         self.tertiary = None
@@ -333,6 +347,12 @@ class SignupView(discord.ui.View):
         self.add_item(TertiarySelect())
         self.add_item(CaptainSelect())
         self.add_item(SubmitButton())
+
+
+def is_admin():
+    async def predicate(interaction: discord.Interaction) -> bool:
+        return interaction.user.guild_permissions.manage_guild
+    return app_commands.check(predicate)
 
 
 # ---------- Commands ----------
@@ -348,6 +368,31 @@ async def signup(interaction: discord.Interaction):
     await interaction.response.send_message(
         "Fill out your sign-up below:", view=SignupView(), ephemeral=True
     )
+
+
+@bot.tree.command(name="signup_for", description="[Manage Server] Sign up another player on their behalf")
+@app_commands.describe(user="The player to sign up")
+@is_admin()
+async def signup_for(interaction: discord.Interaction, user: discord.Member):
+    if user.bot:
+        await interaction.response.send_message("⚠️ You can't sign up a bot.", ephemeral=True)
+        return
+    await interaction.response.send_message(
+        f"Fill out the sign-up for **{user.display_name}**:",
+        view=SignupView(target_user=user),
+        ephemeral=True,
+    )
+
+
+@signup_for.error
+async def signup_for_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.CheckFailure):
+        await interaction.response.send_message(
+            "🚫 You need the 'Manage Server' permission to sign up someone else.",
+            ephemeral=True,
+        )
+    else:
+        raise error
 
 
 @bot.tree.command(name="withdraw", description="Remove yourself from the tournament")

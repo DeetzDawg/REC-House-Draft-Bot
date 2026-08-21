@@ -1,8 +1,8 @@
 # Tournament Sign-Up Bot
 
 ## What it does
-Every command below is usable by **anyone** in the server — there are no permission
-restrictions.
+All commands are usable by **anyone** in the server, except `/signup_for` which
+requires the **Manage Server** permission.
 
 - `/signup` — opens a form: primary position, secondary position, tertiary position,
   and whether you want to be a captain, plus a **Submit** button. Position choices are
@@ -13,6 +13,11 @@ restrictions.
   are already filled, you're signed up as a regular player instead, with a heads-up
   message explaining why. Whenever sign-ups cross 10, 15, or 20 and a slot is still
   open, someone is randomly picked to fill it.
+- `/signup_for user:<member>` — **(Manage Server permission required)** opens the same
+  form as `/signup`, but fills it out on behalf of the specified member instead of the
+  admin themselves. Useful for signing up people who aren't comfortable using slash
+  commands, or who forgot. Everything else (captain caps, auto-assignment) applies the
+  same way as a normal sign-up.
 - `/withdraw` — removes your own sign-up. Captains can't withdraw mid-draft (someone
   would need to `/reset_tournament` first).
 - `/roster` — shows the current sign-up list privately (just to you).
