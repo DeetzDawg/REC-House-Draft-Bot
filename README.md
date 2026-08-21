@@ -8,9 +8,10 @@ restrictions.
   and whether you want to be a captain, plus a **Submit** button. Position choices are
   **PG, SG, SG - Lock, SF, SF - Lock, PF, C**. Fill out all four dropdowns, then hit
   Submit — it'll tell you if anything's missing. Running `/signup` again overwrites
-  your previous entry. **Only 2 captains** are allowed — once 2 are locked in, anyone
-  else who picks "Yes" for captain is signed up as a regular player instead, with a
-  heads-up message explaining why. If sign-ups reach 10 and a captain slot is still
+  your previous entry. **Captain slots scale with sign-ups**: 2 base, 3 once there are
+  15 sign-ups, 4 once there are 20. If you pick "Yes" for captain and all current slots
+  are already filled, you're signed up as a regular player instead, with a heads-up
+  message explaining why. Whenever sign-ups cross 10, 15, or 20 and a slot is still
   open, someone is randomly picked to fill it.
 - `/withdraw` — removes your own sign-up. Captains can't withdraw mid-draft (someone
   would need to `/reset_tournament` first).
@@ -19,11 +20,14 @@ restrictions.
   message auto-updates every time someone signs up, withdraws, drafts a player, or the
   tournament is reset. Run this once per tournament, in whatever channel you want the
   public list to live.
-- `/start_draft` — kicks off the captains' draft. Requires exactly 2 captains signed
-  up. First pick is randomly decided between the two captains.
+- `/start_draft` — kicks off the captains' draft. Requires **at least 2** captains
+  signed up (works with 2, 3, or 4). Draft order is randomized once when the draft
+  starts, then picks proceed in **serpentine (snake) order** — e.g. with 3 captains:
+  A, B, C, C, B, A, A, B, C... The captain at either end of the order picks twice in a
+  row when the direction flips, which is standard for snake drafts.
 - `/draft_pick player:<name>` — usable only by whichever captain's turn it is. Pick
   from an autocomplete dropdown of players still available. Once picked, that player
-  can't be chosen again this draft, and turns alternate between the two captains.
+  can't be chosen again this draft, and turns follow the serpentine order above.
 - `/draft_board` — shows the current draft: each captain's picks, whose turn it is,
   and who's still in the pool. Same info as the auto-updating results message.
 - `/reset_tournament` — wipes all sign-ups *and* the draft so you can start a new

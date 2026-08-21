@@ -5,14 +5,17 @@ Slash commands (all usable by anyone in the server):
   /signup          - Opens an interactive form (primary/secondary/tertiary position,
                      captain?) with a Submit button. Position choices: PG, SG,
                      SG - Lock, SF, SF - Lock, PF, C.
-                     Only 2 captains are allowed per tournament (extra "yes" picks become regular players).
-                     If sign-ups reach 10 and a captain slot is still open, someone is randomly assigned.
+                     Captain slots scale with sign-ups: 2 base, 3 once 15 sign-ups,
+                     4 once 20 sign-ups (extra "yes" picks beyond the current cap
+                     become regular players). If sign-ups cross 10/15/20 and a
+                     captain slot is still open, someone is randomly assigned.
   /roster          - Shows the current sign-up list (ephemeral, on-demand)
   /withdraw        - Removes your own sign-up
   /setup_results   - Posts the auto-updating results message in the current channel
   /reset_tournament- Clears all sign-ups and the draft, and starts fresh
-  /start_draft     - Begins the captains' draft. Requires exactly 2 captains signed up.
-                     First pick is chosen randomly between the two captains.
+  /start_draft     - Begins the captains' draft. Requires at least 2 captains signed up.
+                     Draft order (2+) is randomized once, then picks proceed in
+                     serpentine (snake) order: 1,2,3...N, N...3,2,1, repeat.
   /draft_pick      - (captains only, on their turn) Draft a player from the available pool
   /draft_board     - Shows current draft picks, whose turn it is, and remaining players
 
@@ -29,8 +32,11 @@ from discord.ext import commands
 DATA_FILE = "tournament_data.json"
 
 POSITIONS = ["PG", "SG", "SG - Lock", "SF", "SF - Lock", "PF", "C"]
-MAX_CAPTAINS = 2
-AUTO_CAPTAIN_THRESHOLD = 10
+
+# Base number of captain slots (available even before any threshold is hit), then
+# additional slots unlocked as sign-ups grow. Each tuple is (min_signups, total_captain_slots).
+BASE_CAPTAIN_SLOTS = 2
+CAPTAIN_THRESHOLDS = [(10, 2), (15, 3), (20, 4)]
 
 # ---------- Persistence ----------
 
@@ -46,7 +52,16 @@ def load_data():
 
 
 def default_draft():
-    return {"active": False, "complete": False, "captains": [], "teams": {}, "turn": None, "available": []}
+    return {
+        "active": False,
+        "complete": False,
+        "captains": [],
+        "teams": {},
+        "turn": None,
+        "turn_idx": 0,
+        "direction": 1,
+        "available": [],
+    }
 
 
 def default_data():
@@ -58,16 +73,26 @@ def default_data():
     }
 
 
+def captain_cap_for(num_signups: int) -> int:
+    """How many captain slots are available given the current sign-up count.
+    Starts at BASE_CAPTAIN_SLOTS (2), then grows as CAPTAIN_THRESHOLDS are crossed:
+    10 signups -> 2, 15 signups -> 3, 20 signups -> 4."""
+    cap = BASE_CAPTAIN_SLOTS
+    for threshold, slots in CAPTAIN_THRESHOLDS:
+        if num_signups >= threshold:
+            cap = max(cap, slots)
+    return cap
+
+
 def auto_assign_captains(data: dict) -> list:
-    """If sign-ups have reached AUTO_CAPTAIN_THRESHOLD and fewer than MAX_CAPTAINS
-    captains exist, randomly promote players from the pool to fill the remaining
-    slot(s). Returns the list of user IDs newly made captain (empty if none)."""
+    """If sign-ups have crossed a captain threshold and fewer captains exist than
+    the current cap allows, randomly promote players from the pool to fill the
+    remaining slot(s). Returns the list of user IDs newly made captain (empty if none)."""
     signups = data["signups"]
-    if len(signups) < AUTO_CAPTAIN_THRESHOLD:
-        return []
+    cap = captain_cap_for(len(signups))
 
     current_captains = [uid for uid, s in signups.items() if s["captain"]]
-    needed = MAX_CAPTAINS - len(current_captains)
+    needed = cap - len(current_captains)
     if needed <= 0:
         return []
 
@@ -244,11 +269,15 @@ class SubmitButton(discord.ui.Button):
             existing_captains = [
                 u for u, s in data["signups"].items() if s["captain"] and u != uid
             ]
-            if len(existing_captains) >= MAX_CAPTAINS:
+            # Cap is based on the total sign-up count *after* this person joins
+            post_total = len(data["signups"]) + (0 if uid in data["signups"] else 1)
+            cap = captain_cap_for(post_total)
+            if len(existing_captains) >= cap:
                 await interaction.response.edit_message(
                     content=(
-                        f"⚠️ There are already {MAX_CAPTAINS} captains signed up. "
-                        "You've been signed up as a regular player instead."
+                        f"⚠️ There are already {cap} captain slot(s) filled for the "
+                        f"current sign-up count. You've been signed up as a regular "
+                        "player instead."
                     ),
                     embed=None,
                     view=None,
@@ -286,9 +315,9 @@ class SubmitButton(discord.ui.Button):
                 f"**{data['signups'][u]['display_name']}**" for u in newly_assigned
             )
             await interaction.followup.send(
-                f"🎲 We hit {AUTO_CAPTAIN_THRESHOLD} sign-ups with an open captain spot, "
-                f"so {names} {'was' if len(newly_assigned) == 1 else 'were'} randomly "
-                "picked as captain! Use `/start_draft` when ready."
+                f"🎲 We hit {len(data['signups'])} sign-ups, unlocking another captain "
+                f"slot — so {names} {'was' if len(newly_assigned) == 1 else 'were'} "
+                "randomly picked as captain! Use `/start_draft` when ready."
             )
 
 
@@ -385,22 +414,25 @@ async def start_draft(interaction: discord.Interaction):
         return
 
     captains = [uid for uid, s in signups.items() if s["captain"]]
-    if len(captains) != MAX_CAPTAINS:
+    if len(captains) < 2:
         await interaction.response.send_message(
-            f"⚠️ Need exactly {MAX_CAPTAINS} captains signed up to start the draft "
+            f"⚠️ Need at least 2 captains signed up to start the draft "
             f"(currently {len(captains)}).",
             ephemeral=True,
         )
         return
 
     available = [uid for uid in signups if uid not in captains]
-    first_pick = random.choice(captains)
+    order = captains[:]
+    random.shuffle(order)
     data["draft"] = {
         "active": True,
         "complete": False,
-        "captains": captains,
-        "teams": {c: [] for c in captains},
-        "turn": first_pick,
+        "captains": order,
+        "teams": {c: [] for c in order},
+        "turn": order[0],
+        "turn_idx": 0,
+        "direction": 1,
         "available": available,
     }
     save_data(data)
@@ -417,9 +449,10 @@ async def start_draft(interaction: discord.Interaction):
         )
         return
 
-    first_captain_name = signups[first_pick]["display_name"]
+    order_names = " → ".join(signups[c]["display_name"] for c in order)
     await interaction.response.send_message(
-        f"🎲 Coin flip: {first_captain_name} picks first! "
+        f"🎲 Draft order randomized (serpentine): {order_names}\n"
+        f"**{signups[order[0]]['display_name']}** picks first. "
         "Captains use `/draft_pick` on their turn.",
     )
 
@@ -434,6 +467,22 @@ async def player_autocomplete(interaction: discord.Interaction, current: str):
         if current.lower() in name.lower():
             choices.append(app_commands.Choice(name=name, value=uid))
     return choices[:25]
+
+
+def advance_serpentine(order: list, idx: int, direction: int):
+    """Given a draft order, current index, and direction (1 or -1), returns the next
+    (idx, direction) following snake/serpentine order: 0..N-1, then N-1..0, repeat.
+    The captain at either end picks twice in a row when the direction flips, which is
+    standard snake-draft behavior."""
+    n = len(order)
+    if direction == 1:
+        if idx + 1 < n:
+            return idx + 1, 1
+        return idx, -1  # flip direction, same captain picks again
+    else:
+        if idx - 1 >= 0:
+            return idx - 1, -1
+        return idx, 1  # flip direction, same captain picks again
 
 
 @bot.tree.command(name="draft_pick", description="[Captains] Draft a player from the available pool")
@@ -471,9 +520,13 @@ async def draft_pick(interaction: discord.Interaction, player: str):
     captain_name = data["signups"].get(uid, {}).get("display_name", "A captain")
 
     if draft["available"]:
-        other_captain = next(c for c in draft["captains"] if c != uid)
-        draft["turn"] = other_captain
-        next_name = data["signups"].get(other_captain, {}).get("display_name", "the other captain")
+        order = draft["captains"]
+        idx, direction = advance_serpentine(order, draft.get("turn_idx", 0), draft.get("direction", 1))
+        draft["turn_idx"] = idx
+        draft["direction"] = direction
+        next_captain = order[idx]
+        draft["turn"] = next_captain
+        next_name = data["signups"].get(next_captain, {}).get("display_name", "the next captain")
         turn_note = f"{next_name} is on the clock."
     else:
         draft["active"] = False
