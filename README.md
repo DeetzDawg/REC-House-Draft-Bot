@@ -1,8 +1,9 @@
 # Tournament Sign-Up Bot
 
 ## What it does
-All commands are usable by **anyone** in the server, except `/signup_for` which
-requires the **Manage Server** permission.
+All commands are usable by **anyone** in the server, except `/signup_for`,
+`/withdraw_player`, `/set_captain`, and `/set_sub`, which require the **Manage Server**
+permission.
 
 - `/signup` — opens a form: primary position, secondary position, tertiary position,
   and whether you want to be a captain, plus a **Submit** button. Position choices are
@@ -18,6 +19,20 @@ requires the **Manage Server** permission.
   admin themselves. Useful for signing up people who aren't comfortable using slash
   commands, or who forgot. Everything else (captain caps, auto-assignment) applies the
   same way as a normal sign-up.
+- `/withdraw_player user:<member>` — **(Manage Server permission required)** removes
+  another member's sign-up. Blocked if that member is currently a captain in an active
+  draft — reset the tournament first if you need to remove them at that point.
+- `/set_captain user:<member> captain:<True/False>` — **(Manage Server permission
+  required)** promotes a signed-up player to captain or removes their captain status.
+  This can exceed the normal scaling captain cap if you set it intentionally (you'll
+  get a heads-up note, but it's allowed). Blocked while that player is a captain in an
+  active draft. Making someone a captain automatically clears their sub status.
+- `/set_sub user:<member> sub:<True/False>` — **(Manage Server permission required)**
+  marks a signed-up player as a **substitute**. Subs stay visible on the roster (tagged
+  🪑) but are automatically left out of the draftable pool when `/start_draft` runs —
+  so captains can't pick them. Useful when more people sign up than you have roster
+  spots for. Can't mark a current captain as a sub (remove captain status first) and
+  is blocked while that player is part of an active draft.
 - `/withdraw` — removes your own sign-up. Captains can't withdraw mid-draft (someone
   would need to `/reset_tournament` first).
 - `/roster` — shows the current sign-up list privately (just to you).

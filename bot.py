@@ -11,6 +11,14 @@ Slash commands (all usable by anyone in the server, except where noted):
                      captain slot is still open, someone is randomly assigned.
   /signup_for      - (Manage Server permission only) Same form as /signup, but fills
                      it out on behalf of another member of the server.
+  /withdraw_player - (Manage Server permission only) Removes another member's sign-up.
+                     Blocked for a captain currently in an active draft.
+  /set_captain     - (Manage Server permission only) Makes a signed-up player a
+                     captain, or removes captain status, overriding the normal cap
+                     if needed. Blocked for a captain currently in an active draft.
+  /set_sub         - (Manage Server permission only) Marks a signed-up player as a
+                     substitute — they stay on the roster but are excluded from the
+                     draftable pool when /start_draft is run.
   /roster          - Shows the current sign-up list (ephemeral, on-demand)
   /withdraw        - Removes your own sign-up
   /setup_results   - Posts the auto-updating results message in the current channel
@@ -98,7 +106,10 @@ def auto_assign_captains(data: dict) -> list:
     if needed <= 0:
         return []
 
-    pool = [uid for uid in signups if uid not in current_captains]
+    pool = [
+        uid for uid in signups
+        if uid not in current_captains and not signups[uid].get("sub", False)
+    ]
     if not pool:
         return []
 
@@ -130,21 +141,20 @@ def build_results_embed(data: dict) -> discord.Embed:
         embed.add_field(name="No sign-ups yet", value="Use `/signup` to join!", inline=False)
         return embed
 
-    # Captains listed first, then everyone else, in sign-up order
-    captains = [s for s in signups.values() if s["captain"]]
-    others = [s for s in signups.values() if not s["captain"]]
-
+    # Python dicts (and the JSON they're loaded from) preserve insertion order,
+    # so iterating signups.values() directly lists people in sign-up order.
     def fmt(entry):
-        tag = "👑 " if entry["captain"] else ""
+        tag = "👑 " if entry["captain"] else ("🪑 " if entry.get("sub") else "")
         tertiary = entry.get("tertiary")
         tertiary_str = f" | Tertiary: `{tertiary}`" if tertiary else ""
+        sub_note = " *(sub)*" if entry.get("sub") else ""
         return (
-            f"{tag}**{entry['display_name']}** — "
+            f"{tag}**{entry['display_name']}**{sub_note} — "
             f"Primary: `{entry['primary']}` | "
             f"Secondary: `{entry['secondary']}`{tertiary_str}"
         )
 
-    lines = [fmt(e) for e in captains] + [fmt(e) for e in others]
+    lines = [fmt(e) for e in signups.values()]
 
     # Discord embed fields cap at 1024 chars; chunk if needed
     chunk = ""
@@ -384,12 +394,122 @@ async def signup_for(interaction: discord.Interaction, user: discord.Member):
     )
 
 
+@bot.tree.command(name="withdraw_player", description="[Manage Server] Remove a player from the tournament")
+@app_commands.describe(user="The player to remove")
+@is_admin()
+async def withdraw_player(interaction: discord.Interaction, user: discord.Member):
+    data = load_data()
+    uid = str(user.id)
+    if uid not in data["signups"]:
+        await interaction.response.send_message(
+            f"⚠️ {user.display_name} isn't signed up.", ephemeral=True
+        )
+        return
+
+    draft = data.get("draft", default_draft())
+    if draft["active"] and uid in draft["captains"]:
+        await interaction.response.send_message(
+            f"🚫 {user.display_name} is a captain in an active draft and can't be "
+            "withdrawn right now. Use `/reset_tournament` first if needed.",
+            ephemeral=True,
+        )
+        return
+    if draft["active"] and uid in draft["available"]:
+        draft["available"].remove(uid)
+
+    del data["signups"][uid]
+    save_data(data)
+    await refresh_results_message(data, interaction.client)
+    await interaction.response.send_message(f"✅ Removed **{user.display_name}** from the tournament.")
+
+
+@bot.tree.command(name="set_captain", description="[Manage Server] Make a signed-up player a captain, or remove captain status")
+@app_commands.describe(user="The player to update", captain="True to make them a captain, False to remove captain status")
+@is_admin()
+async def set_captain(interaction: discord.Interaction, user: discord.Member, captain: bool):
+    data = load_data()
+    uid = str(user.id)
+    if uid not in data["signups"]:
+        await interaction.response.send_message(
+            f"⚠️ {user.display_name} isn't signed up.", ephemeral=True
+        )
+        return
+
+    draft = data.get("draft", default_draft())
+    if draft["active"] and uid in draft["captains"]:
+        await interaction.response.send_message(
+            f"🚫 {user.display_name} is a captain in an active draft — captain status "
+            "can't be changed right now. Use `/reset_tournament` first if needed.",
+            ephemeral=True,
+        )
+        return
+
+    data["signups"][uid]["captain"] = captain
+    warning = ""
+    if captain:
+        data["signups"][uid]["sub"] = False  # captains can't also be subs
+        other_captains = [
+            u for u, s in data["signups"].items() if s["captain"] and u != uid
+        ]
+        cap = captain_cap_for(len(data["signups"]))
+        if len(other_captains) >= cap:
+            warning = (
+                f"\n⚠️ Note: this puts you above the normal captain cap of {cap} for "
+                f"{len(data['signups'])} sign-ups. That's fine if intentional."
+            )
+
+    save_data(data)
+    await refresh_results_message(data, interaction.client)
+    status = "now a captain 👑" if captain else "no longer a captain"
+    await interaction.response.send_message(f"✅ **{user.display_name}** is {status}.{warning}")
+
+
+@bot.tree.command(name="set_sub", description="[Manage Server] Mark a signed-up player as a substitute (excluded from the draft pool)")
+@app_commands.describe(user="The player to update", sub="True to mark them a substitute, False to make them draft-eligible again")
+@is_admin()
+async def set_sub(interaction: discord.Interaction, user: discord.Member, sub: bool):
+    data = load_data()
+    uid = str(user.id)
+    if uid not in data["signups"]:
+        await interaction.response.send_message(
+            f"⚠️ {user.display_name} isn't signed up.", ephemeral=True
+        )
+        return
+
+    if sub and data["signups"][uid]["captain"]:
+        await interaction.response.send_message(
+            f"🚫 {user.display_name} is currently a captain. Remove captain status "
+            "first with `/set_captain` before marking them a sub.",
+            ephemeral=True,
+        )
+        return
+
+    draft = data.get("draft", default_draft())
+    if draft["active"] and uid in draft["captains"]:
+        await interaction.response.send_message(
+            f"🚫 {user.display_name} is part of an active draft — sub status can't "
+            "be changed right now. Use `/reset_tournament` first if needed.",
+            ephemeral=True,
+        )
+        return
+    if draft["active"] and uid in draft["available"] and sub:
+        draft["available"].remove(uid)
+
+    data["signups"][uid]["sub"] = sub
+    save_data(data)
+    await refresh_results_message(data, interaction.client)
+    status = "now marked as a substitute 🪑 (excluded from the draft pool)" if sub else "no longer a substitute — draft-eligible again"
+    await interaction.response.send_message(f"✅ **{user.display_name}** is {status}.")
+
+
 @signup_for.error
-async def signup_for_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+@withdraw_player.error
+@set_captain.error
+@set_sub.error
+async def admin_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.CheckFailure):
         await interaction.response.send_message(
-            "🚫 You need the 'Manage Server' permission to sign up someone else.",
-            ephemeral=True,
+            "🚫 You need the 'Manage Server' permission to do that.", ephemeral=True
         )
     else:
         raise error
@@ -467,7 +587,10 @@ async def start_draft(interaction: discord.Interaction):
         )
         return
 
-    available = [uid for uid in signups if uid not in captains]
+    available = [
+        uid for uid in signups
+        if uid not in captains and not signups[uid].get("sub", False)
+    ]
     order = captains[:]
     random.shuffle(order)
     data["draft"] = {
